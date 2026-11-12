@@ -26,9 +26,13 @@
       background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
       transition: all 0.2s ease;
     }
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       transform: translateY(-1px);
       box-shadow: 0 8px 20px -4px rgba(79, 70, 229, 0.45);
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
     .fade-in {
       animation: fadeIn 0.3s ease-in-out;
@@ -199,7 +203,7 @@
             <span>💡</span> คำแนะนำการเข้าสู่ระบบ:
           </div>
           <p>• <strong>นักเรียน:</strong> Username = <code class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">รหัสนักเรียน</code> | Password = <code class="bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">ID</code></p>
-          <p>• <strong>ครูผู้สอน:</strong> เข้าสู่ระบบด้วยบัญชีผู้ดูแลเพื่อเปิด-ปิดกิจกรรมและตรวจงาน</p>
+          <p>• <strong>หมายเหตุ:</strong> แบบทดสอบและกิจกรรมแต่ละรายการทำได้ <strong>1 ครั้ง</strong> กรุณาตรวจสอบคำตอบให้รอบคอบก่อนกดส่ง</p>
         </div>
       </div>
     </div>
@@ -224,9 +228,12 @@
             <span class="bg-cyan-100 text-cyan-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
               รหัสนักเรียน: <span id="stu-code">-</span>
             </span>
+            <span class="bg-amber-100 text-amber-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+              🔒 ทำได้รายการละ 1 ครั้ง
+            </span>
           </div>
           <h2 id="stu-name" class="text-xl sm:text-2xl font-bold text-slate-800 mt-1">ชื่อ-นามสกุล นักเรียน</h2>
-          <p class="text-xs sm:text-sm text-slate-500">เลือกทำแบบทดสอบและกิจกรรมด้านล่าง ระบบจะบันทึกผลงานส่งคุณครูอัตโนมัติ</p>
+          <p class="text-xs sm:text-sm text-slate-500">เลือกทำแบบทดสอบและกิจกรรมด้านล่าง เมื่อกดส่งแล้วจะไม่สามารถทำซ้ำได้</p>
         </div>
       </div>
 
@@ -332,7 +339,7 @@
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-bold text-slate-800">🎛️ ควบคุมการเปิด-ปิดกิจกรรมของนักเรียน</h3>
-          <p class="text-xs text-slate-500">เปิดหรือปิดสิทธิ์การเข้าทำแบบทดสอบและกิจกรรมแต่ละส่วนตามแผนการจัดการเรียนรู้</p>
+          <p class="text-xs text-slate-500">เปิดหรือปิดสิทธิ์การเข้าทำแบบทดสอบและกิจกรรมแต่ละส่วน (นักเรียนทำได้รายการละ 1 ครั้ง)</p>
         </div>
       </div>
       <div id="teacher-toggles-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -345,7 +352,7 @@
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <h3 class="text-lg font-bold text-slate-800">📋 ติดตามการส่งงาน คะแนน และประเมินทักษะการคิดเชิงระบบ (ม.2/3)</h3>
-          <p class="text-xs text-slate-500">คลิกปุ่ม "ตรวจงาน / Rubric" เพื่อดูคำตอบนักเรียนและให้คะแนนทักษะการคิดเชิงระบบ 4 ระดับ</p>
+          <p class="text-xs text-slate-500">คลิกปุ่ม "ตรวจงาน / Rubric" เพื่อดูคำตอบ ให้คะแนน หรือปลดล็อกสิทธิ์ให้ทำใหม่รายบุคคล</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <button type="button" onclick="openImportModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl shadow transition cursor-pointer">
@@ -397,6 +404,7 @@
     const state = {
       gsheetUrl: 'https://script.google.com/macros/s/AKfycbwZO8wJZ2FqHrZQjQUenR-IDjlraYwYl9nvywBfKDu3OPs9bfdldG8oMPVQE2WIBIy_/exec',
       isSyncing: false,
+      isSubmitting: false,
       currentUser: null,
       activeModule: null,
       students: [],
@@ -590,7 +598,24 @@
     ];
 
     // =========================================================================
-    // 3. ฟังก์ชันช่วยเหลือ UI & การแจ้งเตือน
+    // 3. ฟังก์ชันตรวจสอบสิทธิ์ทำได้ 1 ครั้ง (SINGLE-ATTEMPT ENFORCEMENT)
+    // =========================================================================
+    function isModuleCompleted(stu, moduleKey) {
+      if (!stu) return false;
+      if (moduleKey === 'pretest') {
+        return stu.pretestScore !== '' && stu.pretestScore !== null && stu.pretestScore !== undefined;
+      }
+      if (moduleKey === 'posttest') {
+        return stu.posttestScore !== '' && stu.posttestScore !== null && stu.posttestScore !== undefined;
+      }
+      if (moduleKey === 'satisfaction') {
+        return stu.satisfactionAvg !== '' && stu.satisfactionAvg !== null && stu.satisfactionAvg !== undefined;
+      }
+      return stu[`${moduleKey}_status`] === 'ส่งแล้ว';
+    }
+
+    // =========================================================================
+    // 4. ฟังก์ชันช่วยเหลือ UI & การแจ้งเตือน
     // =========================================================================
     function showToast(message, type = 'info') {
       const container = document.getElementById('toast-container');
@@ -636,7 +661,7 @@
     }
 
     // =========================================================================
-    // 4. ระบบเชื่อมต่อ GOOGLE SHEET (TWO-WAY SYNC)
+    // 5. ระบบเชื่อมต่อ GOOGLE SHEET (TWO-WAY SYNC)
     // =========================================================================
     function updateSyncIndicators(connected, text) {
       const loginStatus = document.getElementById('login-sheet-status');
@@ -734,12 +759,12 @@
           showToast('บันทึกในหน้าเว็บแล้ว แต่ส่งเข้า Google Sheet ไม่สำเร็จ', 'warning');
         }
       } else {
-        showToast('บันทึกข้อมูลสำเร็จ (โหมดออฟไลน์)', 'success');
+        showToast(successMsg, 'success');
       }
     }
 
     // =========================================================================
-    // 5. ระบบเข้าสู่ระบบ / ออกจากระบบ (UNIFIED LOGIN)
+    // 6. ระบบเข้าสู่ระบบ / ออกจากระบบ (UNIFIED LOGIN)
     // =========================================================================
     async function handleLogin(event) {
       event.preventDefault();
@@ -769,7 +794,6 @@
         s => String(s.studentCode).trim() === username && String(s.passwordId).trim() === password
       );
 
-      // หากยังหาไม่เจอและมีลิงก์ Google Sheet ให้ลองดึงข้อมูลล่าสุดอีกรอบเผื่อเพิ่งเพิ่มรายชื่อ
       if (!student && isValidGsheetUrl(state.gsheetUrl)) {
         await syncFromGoogleSheet(false);
         student = state.students.find(
@@ -785,6 +809,7 @@
         document.getElementById('top-navbar').classList.remove('hidden');
         document.getElementById('teacher-view').classList.add('hidden');
         document.getElementById('student-view').classList.remove('hidden');
+        document.getElementById('student-workspace').classList.add('hidden');
 
         document.getElementById('nav-user-icon').textContent = '🎓';
         document.getElementById('nav-user-name').textContent = student.name;
@@ -822,7 +847,7 @@
     }
 
     // =========================================================================
-    // 6. ส่วนของนักเรียน (STUDENT DASHBOARD & 6 LEARNING MODULES)
+    // 7. ส่วนของนักเรียน (STUDENT DASHBOARD & 6 LEARNING MODULES - 1 ATTEMPT)
     // =========================================================================
     function renderStudentDashboard() {
       const stu = getCurrentStudent();
@@ -832,15 +857,7 @@
       document.getElementById('stu-code').textContent = stu.studentCode;
       document.getElementById('stu-name').textContent = stu.name;
 
-      const checks = [
-        stu.pretestScore !== '' && stu.pretestScore !== undefined,
-        stu.act1_1_status === 'ส่งแล้ว',
-        stu.act1_2_status === 'ส่งแล้ว',
-        stu.act1_3_status === 'ส่งแล้ว',
-        stu.posttestScore !== '' && stu.posttestScore !== undefined,
-        stu.satisfactionAvg !== '' && stu.satisfactionAvg !== undefined
-      ];
-      const doneCount = checks.filter(Boolean).length;
+      const doneCount = MODULE_META.filter(m => isModuleCompleted(stu, m.key)).length;
       const pct = Math.round((doneCount / 6) * 100);
       document.getElementById('stu-progress-text').textContent = `${doneCount}/6 รายการ (${pct}%)`;
       document.getElementById('stu-progress-bar').style.width = `${pct}%`;
@@ -855,47 +872,55 @@
       const grid = document.getElementById('student-module-grid');
       grid.innerHTML = MODULE_META.map(m => {
         const isOpen = Boolean(state.settings[m.key]);
+        const isDone = isModuleCompleted(stu, m.key);
         let statusBadge = '';
+
         if (m.key === 'pretest') {
-          statusBadge = (stu.pretestScore !== '' && stu.pretestScore !== undefined)
-            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">ได้ ${stu.pretestScore}/20 คะแนน</span>`
+          statusBadge = isDone
+            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">✅ ได้ ${stu.pretestScore}/20 คะแนน</span>`
             : `<span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">ยังไม่ทำ</span>`;
         } else if (m.key === 'posttest') {
-          statusBadge = (stu.posttestScore !== '' && stu.posttestScore !== undefined)
-            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">ได้ ${stu.posttestScore}/20 คะแนน</span>`
+          statusBadge = isDone
+            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">✅ ได้ ${stu.posttestScore}/20 คะแนน</span>`
             : `<span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">ยังไม่ทำ</span>`;
         } else if (m.key === 'satisfaction') {
-          statusBadge = (stu.satisfactionAvg !== '' && stu.satisfactionAvg !== undefined)
-            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">ประเมินแล้ว (${stu.satisfactionAvg}/5)</span>`
+          statusBadge = isDone
+            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">✅ ประเมินแล้ว (${stu.satisfactionAvg}/5)</span>`
             : `<span class="bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5 rounded-full">ยังไม่ประเมิน</span>`;
         } else {
-          const st = stu[`${m.key}_status`];
           const sc = stu[`${m.key}_score`];
-          statusBadge = st === 'ส่งแล้ว'
-            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">ส่งแล้ว ${sc !== '' ? `(${sc}/10)` : ''}</span>`
+          statusBadge = isDone
+            ? `<span class="bg-emerald-100 text-emerald-700 text-xs font-bold px-2.5 py-0.5 rounded-full">✅ ส่งแล้ว ${sc !== '' && sc !== undefined ? `(${sc}/10)` : ''}</span>`
             : `<span class="bg-amber-100 text-amber-800 text-xs px-2.5 py-0.5 rounded-full">ยังไม่ส่ง</span>`;
         }
 
-        const lockOverlay = !isOpen
-          ? `<span class="bg-rose-100 text-rose-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">🔒 ครูปิดระบบชั่วคราว</span>`
-          : `<span class="bg-indigo-50 text-indigo-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">เปิดให้เข้าทำ</span>`;
+        let topRightBadge = '';
+        if (isDone) {
+          topRightBadge = `<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2.5 py-0.5 rounded-full">🔒 ส่งแล้ว (ห้ามทำซ้ำ)</span>`;
+        } else if (!isOpen) {
+          topRightBadge = `<span class="bg-rose-100 text-rose-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">🔒 ครูปิดระบบชั่วคราว</span>`;
+        } else {
+          topRightBadge = `<span class="bg-indigo-50 text-indigo-600 text-xs font-semibold px-2.5 py-0.5 rounded-full">เปิดให้เข้าทำ (1 ครั้ง)</span>`;
+        }
 
         return `
           <div onclick="openStudentModule('${m.key}')"
             class="glass-card rounded-2xl p-5 border transition cursor-pointer flex flex-col justify-between ${
               state.activeModule === m.key ? 'ring-2 ring-indigo-500 border-indigo-400 bg-white' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'
-            } ${!isOpen ? 'opacity-75' : ''}">
+            } ${!isOpen && !isDone ? 'opacity-75' : ''}">
             <div>
               <div class="flex items-center justify-between gap-2 mb-3">
                 <span class="text-2xl">${m.icon}</span>
-                ${lockOverlay}
+                ${topRightBadge}
               </div>
               <h3 class="font-bold text-slate-800 text-sm sm:text-base leading-snug">${m.title}</h3>
               <p class="text-xs text-slate-500 mt-1">${m.desc}</p>
             </div>
             <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
               ${statusBadge}
-              <span class="text-xs font-semibold text-indigo-600">เข้าทำกิจกรรม ➔</span>
+              <span class="text-xs font-semibold ${isDone ? 'text-emerald-600' : 'text-indigo-600'}">
+                ${isDone ? 'ดูผลการส่งงาน ➔' : 'เข้าทำกิจกรรม ➔'}
+              </span>
             </div>
           </div>
         `;
@@ -903,15 +928,30 @@
     }
 
     function openStudentModule(moduleKey) {
-      if (!state.settings[moduleKey]) {
+      const stu = getCurrentStudent();
+      if (!stu) return;
+
+      const isDone = isModuleCompleted(stu, moduleKey);
+
+      // หากยังไม่ได้ส่งงาน และครูยังไม่เปิดระบบ ให้แจ้งเตือน
+      if (!isDone && !state.settings[moduleKey]) {
         showToast('คุณครูยังไม่เปิดให้เข้าทำกิจกรรมนี้ในขณะนี้', 'warning');
         return;
       }
+
       state.activeModule = moduleKey;
       renderStudentDashboard();
 
       const ws = document.getElementById('student-workspace');
       ws.classList.remove('hidden');
+
+      // หากทำเสร็จและส่งไปแล้ว ให้แสดงหน้าสรุปแบบอ่านอย่างเดียว (ห้ามทำซ้ำ)
+      if (isDone) {
+        renderCompletedSummary(moduleKey);
+        showToast('รายการนี้คุณได้ส่งงานเรียบร้อยแล้ว (จำกัดสิทธิ์ทำได้ 1 ครั้ง)', 'info');
+        ws.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
 
       if (moduleKey === 'pretest' || moduleKey === 'posttest') {
         renderQuizModule(moduleKey);
@@ -928,23 +968,78 @@
       ws.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // --- หน้าจอสรุปผลเมื่อนักเรียนทำครบ 1 ครั้งแล้ว (Read-Only Lock) ---
+    function renderCompletedSummary(moduleKey) {
+      const stu = getCurrentStudent();
+      const meta = MODULE_META.find(m => m.key === moduleKey);
+      const ws = document.getElementById('student-workspace');
+
+      let detailHtml = '';
+      if (moduleKey === 'pretest') {
+        detailHtml = `
+          <div class="text-3xl font-bold text-indigo-700 my-2">${stu.pretestScore} / 20 คะแนน</div>
+          <div class="text-xs text-slate-500">บันทึกเวลาส่ง: ${stu.pretestTime || 'บันทึกในระบบแล้ว'}</div>
+        `;
+      } else if (moduleKey === 'posttest') {
+        detailHtml = `
+          <div class="text-3xl font-bold text-indigo-700 my-2">${stu.posttestScore} / 20 คะแนน</div>
+          <div class="text-xs text-slate-500">บันทึกเวลาส่ง: ${stu.posttestTime || 'บันทึกในระบบแล้ว'}</div>
+        `;
+      } else if (moduleKey === 'satisfaction') {
+        detailHtml = `
+          <div class="text-3xl font-bold text-rose-600 my-2">${stu.satisfactionAvg} / 5.00 คะแนน</div>
+          <div class="text-xs text-slate-500">ขอบคุณสำหรับการประเมินความพึงพอใจ</div>
+        `;
+      } else {
+        const sc = stu[`${moduleKey}_score`];
+        const data = stu[`${moduleKey}_data`];
+        const time = stu[`${moduleKey}_time`];
+        detailHtml = `
+          ${sc !== '' && sc !== undefined ? `<div class="text-2xl font-bold text-indigo-700 my-2">คะแนนที่ได้รับ: ${sc} / 10 คะแนน</div>` : ''}
+          <div class="mt-3 p-4 rounded-2xl bg-white border border-slate-200 text-left text-xs sm:text-sm text-slate-700 whitespace-pre-line">
+            <strong class="text-slate-900">คำตอบที่บันทึกไว้:</strong>\n${data || 'ส่งผลงานเรียบร้อยแล้ว'}
+          </div>
+          <div class="text-xs text-slate-500 mt-2">บันทึกเวลาส่ง: ${time || 'บันทึกในระบบแล้ว'}</div>
+        `;
+      }
+
+      ws.innerHTML = `
+        <div class="text-center max-w-xl mx-auto py-4 space-y-4">
+          <div class="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+            🔒
+          </div>
+          <div>
+            <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full">
+              ✅ ส่งผลงานเรียบร้อยแล้ว (จำกัดสิทธิ์ทำได้ 1 ครั้ง)
+            </span>
+            <h3 class="text-xl font-bold text-slate-800 mt-2">${meta.icon} ${meta.title}</h3>
+          </div>
+
+          <div class="p-6 rounded-3xl bg-slate-50 border border-slate-200">
+            ${detailHtml}
+          </div>
+
+          <p class="text-xs text-slate-500">
+            ระบบได้บันทึกคะแนนและผลงานของคุณลงฐานข้อมูลเรียบร้อยแล้ว จึงไม่สามารถทำซ้ำได้<br>
+            (หากเกิดเหตุขัดข้องทางเทคนิค กรุณาแจ้งครูผู้สอน)
+          </p>
+        </div>
+      `;
+    }
+
     // --- โมดูลแบบทดสอบก่อนเรียน / หลังเรียน (20 ข้อ) ---
     function renderQuizModule(type) {
-      const stu = getCurrentStudent();
       const isPre = type === 'pretest';
       const title = isPre ? '📝 แบบทดสอบก่อนเรียน (Pre-test) จำนวน 20 ข้อ' : '🏆 แบบทดสอบหลังเรียน (Post-test) จำนวน 20 ข้อ';
-      const existingScore = isPre ? stu.pretestScore : stu.posttestScore;
 
       const ws = document.getElementById('student-workspace');
       ws.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-200 mb-6">
           <div>
             <h3 class="text-xl font-bold text-slate-800">${title}</h3>
-            <p class="text-xs sm:text-sm text-slate-500">เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว</p>
+            <p class="text-xs sm:text-sm text-slate-500">เลือกคำตอบที่ถูกต้องที่สุดเพียงข้อเดียว (ทำได้ 1 ครั้ง เมื่อกดส่งแล้วจะไม่สามารถแก้ไขได้)</p>
           </div>
-          ${existingScore !== '' && existingScore !== undefined
-            ? `<div class="bg-emerald-100 text-emerald-800 px-4 py-2 rounded-xl text-sm font-bold">คะแนนล่าสุดของคุณ: ${existingScore} / 20 คะแนน</div>`
-            : ''}
+          <span class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">⚠️ ทำได้เพียง 1 ครั้ง</span>
         </div>
 
         <form id="quiz-form" onsubmit="submitQuiz(event, '${type}')" class="space-y-5">
@@ -963,8 +1058,8 @@
           `).join('')}
 
           <div class="pt-4 flex justify-end gap-3">
-            <button type="submit" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
-              ส่งคำตอบและตรวจคะแนนทันที ✅
+            <button type="submit" id="btn-submit-quiz" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
+              ยืนยันส่งคำตอบ (ทำได้ 1 ครั้ง) ✅
             </button>
           </div>
         </form>
@@ -973,40 +1068,58 @@
 
     async function submitQuiz(event, type) {
       event.preventDefault();
-      const form = event.target;
-      let score = 0;
-
-      ACHIEVEMENT_QUESTIONS.forEach((item, idx) => {
-        const selected = form.querySelector(`input[name="q_${idx}"]:checked`);
-        if (selected && Number(selected.value) === item.ans) {
-          score++;
-        }
-      });
-
       const stu = getCurrentStudent();
-      const now = getCurrentTimestamp();
-      if (type === 'pretest') {
-        stu.pretestScore = score;
-        stu.pretestTime = now;
-      } else {
-        stu.posttestScore = score;
-        stu.posttestTime = now;
+      if (!stu || state.isSubmitting) return;
+
+      if (isModuleCompleted(stu, type)) {
+        showToast('คุณได้ทำแบบทดสอบนี้ไปแล้ว ไม่สามารถทำซ้ำได้', 'error');
+        renderCompletedSummary(type);
+        return;
       }
 
-      await saveStudentRecord(stu, `ส่ง${type === 'pretest' ? 'แบบทดสอบก่อนเรียน' : 'แบบทดสอบหลังเรียน'}แล้ว! ได้ ${score}/20 คะแนน`);
-      renderQuizModule(type);
+      state.isSubmitting = true;
+      const btn = document.getElementById('btn-submit-quiz');
+      if (btn) btn.disabled = true;
+
+      try {
+        const form = event.target;
+        let score = 0;
+
+        ACHIEVEMENT_QUESTIONS.forEach((item, idx) => {
+          const selected = form.querySelector(`input[name="q_${idx}"]:checked`);
+          if (selected && Number(selected.value) === item.ans) {
+            score++;
+          }
+        });
+
+        const now = getCurrentTimestamp();
+        if (type === 'pretest') {
+          stu.pretestScore = score;
+          stu.pretestTime = now;
+        } else {
+          stu.posttestScore = score;
+          stu.posttestTime = now;
+        }
+
+        await saveStudentRecord(stu, `ส่ง${type === 'pretest' ? 'แบบทดสอบก่อนเรียน' : 'แบบทดสอบหลังเรียน'}แล้ว! ได้ ${score}/20 คะแนน`);
+        renderCompletedSummary(type);
+      } finally {
+        state.isSubmitting = false;
+      }
     }
 
     // --- กิจกรรมที่ 1.1: IPO Visualizer & จำแนกระบบอัตโนมัติ ---
     function renderActivity1_1() {
-      const stu = getCurrentStudent();
       const ws = document.getElementById('student-workspace');
 
       ws.innerHTML = `
-        <div class="pb-4 border-b border-slate-200 mb-6">
-          <span class="bg-cyan-100 text-cyan-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.1</span>
-          <h3 class="text-xl font-bold text-slate-800 mt-2">⚙️ สะดวกสบายได้ด้วยเทคโนโลยี (IPO Visualizer & จำแนกระบบ)</h3>
-          <p class="text-xs sm:text-sm text-slate-500 mt-1">ตอนที่ 1: จับคู่ตัวป้อน (Input) กระบวนการ (Process) และผลผลิต (Output) | ตอนที่ 2: จำแนกระบบอัตโนมัติและอัตโนมือ</p>
+        <div class="pb-4 border-b border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span class="bg-cyan-100 text-cyan-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.1</span>
+            <h3 class="text-xl font-bold text-slate-800 mt-2">⚙️ สะดวกสบายได้ด้วยเทคโนโลยี (IPO Visualizer & จำแนกระบบ)</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">ตอนที่ 1: จับคู่ตัวป้อน กระบวนการ และผลผลิต | ตอนที่ 2: จำแนกระบบอัตโนมัติและอัตโนมือ</p>
+          </div>
+          <span class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">⚠️ ทำได้เพียง 1 ครั้ง</span>
         </div>
 
         <form onsubmit="submitActivity1_1(event)" class="space-y-8">
@@ -1070,10 +1183,9 @@
             </div>
           </div>
 
-          <div class="pt-4 flex items-center justify-between border-t border-slate-200">
-            <span class="text-xs text-slate-500">สถานะปัจจุบัน: <strong>${stu.act1_1_status || 'ยังไม่ทำ'}</strong></span>
-            <button type="submit" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
-              ส่งผลงานกิจกรรมที่ 1.1 🚀
+          <div class="pt-4 flex items-center justify-end border-t border-slate-200">
+            <button type="submit" id="btn-submit-1-1" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
+              ยืนยันส่งผลงานกิจกรรมที่ 1.1 (ทำได้ 1 ครั้ง) 🚀
             </button>
           </div>
         </form>
@@ -1082,47 +1194,64 @@
 
     async function submitActivity1_1(event) {
       event.preventDefault();
-      const form = event.target;
-
-      let ipoScore = 0;
-      IPO_SCENARIOS.forEach(sc => {
-        const vIn = form.querySelector(`[name="${sc.id}_in"]`).value;
-        const vProc = form.querySelector(`[name="${sc.id}_proc"]`).value;
-        const vOut = form.querySelector(`[name="${sc.id}_out"]`).value;
-        if (vIn === sc.input && vProc === sc.process && vOut === sc.output) {
-          ipoScore++;
-        }
-      });
-
-      let clsScore = 0;
-      CLASSIFICATION_ITEMS.forEach(item => {
-        const checked = form.querySelector(`input[name="${item.id}"]:checked`);
-        if (checked && checked.value === item.answer) {
-          clsScore++;
-        }
-      });
-
-      const totalScore = ipoScore + clsScore;
       const stu = getCurrentStudent();
-      stu.act1_1_status = 'ส่งแล้ว';
-      stu.act1_1_score = totalScore;
-      stu.act1_1_data = `IPO: ${ipoScore}/5, จำแนกระบบ: ${clsScore}/5`;
-      stu.act1_1_time = getCurrentTimestamp();
+      if (!stu || state.isSubmitting) return;
 
-      await saveStudentRecord(stu, `ส่งกิจกรรมที่ 1.1 สำเร็จ! ได้คะแนน ${totalScore}/10 คะแนน`);
-      renderActivity1_1();
+      if (isModuleCompleted(stu, 'act1_1')) {
+        showToast('คุณส่งกิจกรรมที่ 1.1 ไปแล้ว ไม่สามารถทำซ้ำได้', 'error');
+        renderCompletedSummary('act1_1');
+        return;
+      }
+
+      state.isSubmitting = true;
+      const btn = document.getElementById('btn-submit-1-1');
+      if (btn) btn.disabled = true;
+
+      try {
+        const form = event.target;
+        let ipoScore = 0;
+        IPO_SCENARIOS.forEach(sc => {
+          const vIn = form.querySelector(`[name="${sc.id}_in"]`).value;
+          const vProc = form.querySelector(`[name="${sc.id}_proc"]`).value;
+          const vOut = form.querySelector(`[name="${sc.id}_out"]`).value;
+          if (vIn === sc.input && vProc === sc.process && vOut === sc.output) {
+            ipoScore++;
+          }
+        });
+
+        let clsScore = 0;
+        CLASSIFICATION_ITEMS.forEach(item => {
+          const checked = form.querySelector(`input[name="${item.id}"]:checked`);
+          if (checked && checked.value === item.answer) {
+            clsScore++;
+          }
+        });
+
+        const totalScore = ipoScore + clsScore;
+        stu.act1_1_status = 'ส่งแล้ว';
+        stu.act1_1_score = totalScore;
+        stu.act1_1_data = `IPO: ${ipoScore}/5, จำแนกระบบ: ${clsScore}/5`;
+        stu.act1_1_time = getCurrentTimestamp();
+
+        await saveStudentRecord(stu, `ส่งกิจกรรมที่ 1.1 สำเร็จ! ได้คะแนน ${totalScore}/10 คะแนน`);
+        renderCompletedSummary('act1_1');
+      } finally {
+        state.isSubmitting = false;
+      }
     }
 
     // --- กิจกรรมที่ 1.2: วิเคราะห์สถานการณ์ Smart Home ---
     function renderActivity1_2() {
-      const stu = getCurrentStudent();
       const ws = document.getElementById('student-workspace');
 
       ws.innerHTML = `
-        <div class="pb-4 border-b border-slate-200 mb-6">
-          <span class="bg-violet-100 text-violet-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.2</span>
-          <h3 class="text-xl font-bold text-slate-800 mt-2">🏠 ข้อดี-ข้อจำกัด-ระบบอัตโนมัติ (แบบประเมินผลกระทบสังคม Smart Life)</h3>
-          <p class="text-xs sm:text-sm text-slate-500 mt-1">วิเคราะห์กรณีศึกษาบ้านอัจฉริยะ (Smart Home) ด้วยทักษะการคิดเชิงระบบ</p>
+        <div class="pb-4 border-b border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span class="bg-violet-100 text-violet-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.2</span>
+            <h3 class="text-xl font-bold text-slate-800 mt-2">🏠 ข้อดี-ข้อจำกัด-ระบบอัตโนมัติ (แบบประเมินผลกระทบสังคม Smart Life)</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">วิเคราะห์กรณีศึกษาบ้านอัจฉริยะ (Smart Home) ด้วยทักษะการคิดเชิงระบบ</p>
+          </div>
+          <span class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">⚠️ ทำได้เพียง 1 ครั้ง</span>
         </div>
 
         <div class="p-5 rounded-2xl bg-gradient-to-r from-violet-50 to-fuchsia-50 border border-violet-200 mb-6 space-y-2">
@@ -1157,10 +1286,9 @@
               class="w-full p-3.5 rounded-2xl border border-slate-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-sm"></textarea>
           </div>
 
-          <div class="pt-4 flex items-center justify-between border-t border-slate-200">
-            <span class="text-xs text-slate-500">สถานะปัจจุบัน: <strong>${stu.act1_2_status || 'ยังไม่ทำ'}</strong></span>
-            <button type="submit" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
-              ส่งผลงานกิจกรรมที่ 1.2 🚀
+          <div class="pt-4 flex items-center justify-end border-t border-slate-200">
+            <button type="submit" id="btn-submit-1-2" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
+              ยืนยันส่งผลงานกิจกรรมที่ 1.2 (ทำได้ 1 ครั้ง) 🚀
             </button>
           </div>
         </form>
@@ -1169,18 +1297,34 @@
 
     async function submitActivity1_2(event) {
       event.preventDefault();
-      const pros = document.getElementById('act1-2-pros').value.trim();
-      const cons = document.getElementById('act1-2-cons').value.trim();
-      const solution = document.getElementById('act1-2-solution').value.trim();
-
       const stu = getCurrentStudent();
-      stu.act1_2_status = 'ส่งแล้ว';
-      stu.act1_2_score = stu.act1_2_score || 10;
-      stu.act1_2_data = `ข้อดี: ${pros} | ข้อจำกัด: ${cons} | แนวทางแก้ไข: ${solution}`;
-      stu.act1_2_time = getCurrentTimestamp();
+      if (!stu || state.isSubmitting) return;
 
-      await saveStudentRecord(stu, 'ส่งผลงานกิจกรรมที่ 1.2 สำเร็จ! คุณครูจะตรวจสอบและประเมิน Rubric');
-      renderActivity1_2();
+      if (isModuleCompleted(stu, 'act1_2')) {
+        showToast('คุณส่งกิจกรรมที่ 1.2 ไปแล้ว ไม่สามารถทำซ้ำได้', 'error');
+        renderCompletedSummary('act1_2');
+        return;
+      }
+
+      state.isSubmitting = true;
+      const btn = document.getElementById('btn-submit-1-2');
+      if (btn) btn.disabled = true;
+
+      try {
+        const pros = document.getElementById('act1-2-pros').value.trim();
+        const cons = document.getElementById('act1-2-cons').value.trim();
+        const solution = document.getElementById('act1-2-solution').value.trim();
+
+        stu.act1_2_status = 'ส่งแล้ว';
+        stu.act1_2_score = 10;
+        stu.act1_2_data = `ข้อดี: ${pros} | ข้อจำกัด: ${cons} | แนวทางแก้ไข: ${solution}`;
+        stu.act1_2_time = getCurrentTimestamp();
+
+        await saveStudentRecord(stu, 'ส่งผลงานกิจกรรมที่ 1.2 สำเร็จ! คุณครูจะตรวจสอบและประเมิน Rubric');
+        renderCompletedSummary('act1_2');
+      } finally {
+        state.isSubmitting = false;
+      }
     }
 
     // --- กิจกรรมที่ 1.3: ห้องทดลองเสมือนเซนเซอร์และประสาทสัมผัส (Virtual Lab) ---
@@ -1234,14 +1378,16 @@
     }
 
     function renderActivity1_3() {
-      const stu = getCurrentStudent();
       const ws = document.getElementById('student-workspace');
 
       ws.innerHTML = `
-        <div class="pb-4 border-b border-slate-200 mb-6">
-          <span class="bg-teal-100 text-teal-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.3</span>
-          <h3 class="text-xl font-bold text-slate-800 mt-2">🔬 ห้องทดลองเสมือนเซนเซอร์และอวัยวะรับความรู้สึก (Sensors vs Senses Virtual Lab)</h3>
-          <p class="text-xs sm:text-sm text-slate-500 mt-1">ปรับแถบเลื่อนเพื่อทดสอบขีดจำกัดของอวัยวะรับสัมผัสของมนุษย์เปรียบเทียบกับเซนเซอร์</p>
+        <div class="pb-4 border-b border-slate-200 mb-6 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span class="bg-teal-100 text-teal-800 text-xs font-bold px-3 py-1 rounded-full">กิจกรรมที่ 1.3</span>
+            <h3 class="text-xl font-bold text-slate-800 mt-2">🔬 ห้องทดลองเสมือนเซนเซอร์และอวัยวะรับความรู้สึก (Sensors vs Senses Virtual Lab)</h3>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">ปรับแถบเลื่อนเพื่อทดสอบขีดจำกัดของอวัยวะรับสัมผัสของมนุษย์เปรียบเทียบกับเซนเซอร์</p>
+          </div>
+          <span class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">⚠️ ทำได้เพียง 1 ครั้ง</span>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -1311,10 +1457,9 @@
               class="w-full p-3.5 rounded-2xl border border-slate-300 text-sm outline-none focus:border-indigo-500"></textarea>
           </div>
 
-          <div class="pt-4 flex items-center justify-between border-t border-slate-200">
-            <span class="text-xs text-slate-500">สถานะปัจจุบัน: <strong>${stu.act1_3_status || 'ยังไม่ทำ'}</strong></span>
-            <button type="submit" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
-              ส่งผลการทดลองกิจกรรมที่ 1.3 🚀
+          <div class="pt-4 flex items-center justify-end border-t border-slate-200">
+            <button type="submit" id="btn-submit-1-3" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
+              ยืนยันส่งผลการทดลองกิจกรรมที่ 1.3 (ทำได้ 1 ครั้ง) 🚀
             </button>
           </div>
         </form>
@@ -1323,23 +1468,38 @@
 
     async function submitActivity1_3(event) {
       event.preventDefault();
-      const heard = document.getElementById('act1-3-heard').value.trim();
-      const example = document.getElementById('act1-3-example').value.trim();
-      const summary = document.getElementById('act1-3-summary').value.trim();
-
       const stu = getCurrentStudent();
-      stu.act1_3_status = 'ส่งแล้ว';
-      stu.act1_3_score = stu.act1_3_score || 10;
-      stu.act1_3_data = `ความถี่ที่ได้ยิน: ${heard} | ตัวอย่างเซนเซอร์: ${example} | สรุปผล: ${summary}`;
-      stu.act1_3_time = getCurrentTimestamp();
+      if (!stu || state.isSubmitting) return;
 
-      await saveStudentRecord(stu, 'ส่งผลการทดลองกิจกรรมที่ 1.3 สำเร็จ!');
-      renderActivity1_3();
+      if (isModuleCompleted(stu, 'act1_3')) {
+        showToast('คุณส่งกิจกรรมที่ 1.3 ไปแล้ว ไม่สามารถทำซ้ำได้', 'error');
+        renderCompletedSummary('act1_3');
+        return;
+      }
+
+      state.isSubmitting = true;
+      const btn = document.getElementById('btn-submit-1-3');
+      if (btn) btn.disabled = true;
+
+      try {
+        const heard = document.getElementById('act1-3-heard').value.trim();
+        const example = document.getElementById('act1-3-example').value.trim();
+        const summary = document.getElementById('act1-3-summary').value.trim();
+
+        stu.act1_3_status = 'ส่งแล้ว';
+        stu.act1_3_score = 10;
+        stu.act1_3_data = `ความถี่ที่ได้ยิน: ${heard} | ตัวอย่างเซนเซอร์: ${example} | สรุปผล: ${summary}`;
+        stu.act1_3_time = getCurrentTimestamp();
+
+        await saveStudentRecord(stu, 'ส่งผลการทดลองกิจกรรมที่ 1.3 สำเร็จ!');
+        renderCompletedSummary('act1_3');
+      } finally {
+        state.isSubmitting = false;
+      }
     }
 
     // --- โมดูลแบบวัดความพึงพอใจ (10 ข้อ Likert Scale 1-5) ---
     function renderSatisfactionModule() {
-      const stu = getCurrentStudent();
       const ws = document.getElementById('student-workspace');
 
       ws.innerHTML = `
@@ -1349,7 +1509,7 @@
             <h3 class="text-xl font-bold text-slate-800 mt-2">⭐ แบบวัดความพึงพอใจต่อนวัตกรรม World of Automation (10 ข้อ)</h3>
             <p class="text-xs sm:text-sm text-slate-500">ระดับ 5 = มากที่สุด | 4 = มาก | 3 = ปานกลาง | 2 = น้อย | 1 = น้อยที่สุด</p>
           </div>
-          ${stu.satisfactionAvg ? `<div class="bg-emerald-100 text-emerald-800 px-4 py-2 rounded-xl text-sm font-bold">ค่าเฉลี่ยของคุณ: ${stu.satisfactionAvg} / 5.00</div>` : ''}
+          <span class="bg-amber-100 text-amber-800 px-3 py-1.5 rounded-xl text-xs font-bold">⚠️ ทำได้เพียง 1 ครั้ง</span>
         </div>
 
         <form onsubmit="submitSatisfaction(event)" class="space-y-3">
@@ -1368,8 +1528,8 @@
           `).join('')}
 
           <div class="pt-4 flex justify-end">
-            <button type="submit" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
-              ส่งแบบประเมินความพึงพอใจ ⭐
+            <button type="submit" id="btn-submit-sat" class="btn-primary text-white font-semibold px-8 py-3.5 rounded-2xl shadow-lg cursor-pointer">
+              ยืนยันส่งแบบประเมินความพึงพอใจ (ทำได้ 1 ครั้ง) ⭐
             </button>
           </div>
         </form>
@@ -1378,24 +1538,40 @@
 
     async function submitSatisfaction(event) {
       event.preventDefault();
-      const form = event.target;
-      const scores = [];
-      for (let i = 0; i < SATISFACTION_ITEMS.length; i++) {
-        const val = Number(form.querySelector(`input[name="sat_${i}"]:checked`).value);
-        scores.push(val);
-      }
-      const avg = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2);
-
       const stu = getCurrentStudent();
-      stu.satisfactionAvg = avg;
-      stu.satisfactionScores = JSON.stringify(scores);
+      if (!stu || state.isSubmitting) return;
 
-      await saveStudentRecord(stu, `ส่งแบบประเมินความพึงพอใจแล้ว (ค่าเฉลี่ย ${avg}/5.00) ขอบคุณครับ!`);
-      renderSatisfactionModule();
+      if (isModuleCompleted(stu, 'satisfaction')) {
+        showToast('คุณส่งแบบประเมินความพึงพอใจไปแล้ว ไม่สามารถทำซ้ำได้', 'error');
+        renderCompletedSummary('satisfaction');
+        return;
+      }
+
+      state.isSubmitting = true;
+      const btn = document.getElementById('btn-submit-sat');
+      if (btn) btn.disabled = true;
+
+      try {
+        const form = event.target;
+        const scores = [];
+        for (let i = 0; i < SATISFACTION_ITEMS.length; i++) {
+          const val = Number(form.querySelector(`input[name="sat_${i}"]:checked`).value);
+          scores.push(val);
+        }
+        const avg = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2);
+
+        stu.satisfactionAvg = avg;
+        stu.satisfactionScores = JSON.stringify(scores);
+
+        await saveStudentRecord(stu, `ส่งแบบประเมินความพึงพอใจแล้ว (ค่าเฉลี่ย ${avg}/5.00) ขอบคุณครับ!`);
+        renderCompletedSummary('satisfaction');
+      } finally {
+        state.isSubmitting = false;
+      }
     }
 
     // =========================================================================
-    // 7. ส่วนของครูผู้สอน (TEACHER DASHBOARD & RUBRIC GRADING)
+    // 8. ส่วนของครูผู้สอน (TEACHER DASHBOARD, RUBRIC & RESET PERMISSION)
     // =========================================================================
     function renderTeacherDashboard() {
       const total = state.students.length;
@@ -1527,20 +1703,39 @@
           <button type="button" onclick="closeModal()" class="text-slate-400 hover:text-slate-700 text-xl font-bold px-2 cursor-pointer">✕</button>
         </div>
 
-        <div class="space-y-4 mb-6 text-xs sm:text-sm">
-          <div class="p-4 rounded-2xl bg-cyan-50/70 border border-cyan-200">
-            <div class="font-bold text-cyan-900">⚙️ กิจกรรมที่ 1.1 (IPO & จำแนกระบบ): <span class="text-indigo-700">${stu.act1_1_score || 0}/10 คะแนน</span></div>
-            <div class="text-slate-600 mt-1">${stu.act1_1_data || 'ยังไม่ส่งผลงาน'}</div>
+        <div class="space-y-3 mb-6 text-xs sm:text-sm">
+          <div class="p-4 rounded-2xl bg-cyan-50/70 border border-cyan-200 flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-cyan-900">⚙️ กิจกรรมที่ 1.1 (IPO & จำแนกระบบ): <span class="text-indigo-700">${stu.act1_1_score || 0}/10 คะแนน</span></div>
+              <div class="text-slate-600 mt-1">${stu.act1_1_data || 'ยังไม่ส่งผลงาน'}</div>
+            </div>
+            ${isModuleCompleted(stu, 'act1_1') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'act1_1')" class="shrink-0 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ตสิทธิ์</button>` : ''}
           </div>
 
-          <div class="p-4 rounded-2xl bg-violet-50/70 border border-violet-200">
-            <div class="font-bold text-violet-900">🏠 กิจกรรมที่ 1.2 (วิเคราะห์ Smart Home):</div>
-            <div class="text-slate-700 mt-1 whitespace-pre-line">${stu.act1_2_data || 'ยังไม่ส่งผลงาน'}</div>
+          <div class="p-4 rounded-2xl bg-violet-50/70 border border-violet-200 flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-violet-900">🏠 กิจกรรมที่ 1.2 (วิเคราะห์ Smart Home):</div>
+              <div class="text-slate-700 mt-1 whitespace-pre-line">${stu.act1_2_data || 'ยังไม่ส่งผลงาน'}</div>
+            </div>
+            ${isModuleCompleted(stu, 'act1_2') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'act1_2')" class="shrink-0 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ตสิทธิ์</button>` : ''}
           </div>
 
-          <div class="p-4 rounded-2xl bg-teal-50/70 border border-teal-200">
-            <div class="font-bold text-teal-900">🔬 กิจกรรมที่ 1.3 (Sensors vs Senses Lab):</div>
-            <div class="text-slate-700 mt-1 whitespace-pre-line">${stu.act1_3_data || 'ยังไม่ส่งผลงาน'}</div>
+          <div class="p-4 rounded-2xl bg-teal-50/70 border border-teal-200 flex items-start justify-between gap-2">
+            <div>
+              <div class="font-bold text-teal-900">🔬 กิจกรรมที่ 1.3 (Sensors vs Senses Lab):</div>
+              <div class="text-slate-700 mt-1 whitespace-pre-line">${stu.act1_3_data || 'ยังไม่ส่งผลงาน'}</div>
+            </div>
+            ${isModuleCompleted(stu, 'act1_3') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'act1_3')" class="shrink-0 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ตสิทธิ์</button>` : ''}
+          </div>
+
+          <!-- ปุ่มรีเซ็ตแบบทดสอบกรณีฉุกเฉิน -->
+          <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs font-semibold text-slate-600">ปลดล็อกสิทธิ์ทำแบบทดสอบ / แบบประเมินใหม่ (กรณีฉุกเฉิน):</span>
+            <div class="flex flex-wrap gap-1.5">
+              ${isModuleCompleted(stu, 'pretest') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'pretest')" class="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ต Pre-test</button>` : ''}
+              ${isModuleCompleted(stu, 'posttest') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'posttest')" class="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ต Post-test</button>` : ''}
+              ${isModuleCompleted(stu, 'satisfaction') ? `<button type="button" onclick="resetStudentModule('${stu.studentCode}', 'satisfaction')" class="bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-xs px-2.5 py-1 rounded-lg cursor-pointer">🔄 รีเซ็ตความพึงพอใจ</button>` : ''}
+            </div>
           </div>
         </div>
 
@@ -1577,6 +1772,30 @@
           </div>
         </form>
       `);
+    }
+
+    async function resetStudentModule(studentCode, moduleKey) {
+      const stu = state.students.find(s => s.studentCode === studentCode);
+      if (!stu) return;
+
+      if (moduleKey === 'pretest') {
+        stu.pretestScore = '';
+        stu.pretestTime = '';
+      } else if (moduleKey === 'posttest') {
+        stu.posttestScore = '';
+        stu.posttestTime = '';
+      } else if (moduleKey === 'satisfaction') {
+        stu.satisfactionAvg = '';
+        stu.satisfactionScores = '';
+      } else {
+        stu[`${moduleKey}_status`] = 'ยังไม่ทำ';
+        stu[`${moduleKey}_score`] = '';
+        stu[`${moduleKey}_data`] = '';
+        stu[`${moduleKey}_time`] = '';
+      }
+
+      await saveStudentRecord(stu, `ปลดล็อกสิทธิ์ให้นักเรียน ${stu.name} ทำรายการนี้ใหม่ได้แล้ว`);
+      openGradingModal(studentCode);
     }
 
     async function saveRubricGrade(event, studentCode) {
